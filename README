@@ -1,4 +1,43 @@
-DMA-benchmark-rpi4
+# Demo Lập Trình C Cấp Thấp Trên Raspberry Pi 4: DMA, PWM và Mailbox
 
-Nguyen Quang Minh - 0916254336
+Kho lưu trữ này chứa các ví dụ lập trình C nâng cao, minh họa khả năng điều khiển phần cứng cấp thấp trên Raspberry Pi 4 chạy hệ điều hành Linux. Các dự án này không sử dụng các thư viện cấp cao tiêu chuẩn (như WiringPi hay Pigpio) mà tương tác trực tiếp với các thanh ghi phần cứng. Mục tiêu là chứng minh cách đạt được hiệu suất cao cho các tác vụ như chuyển dữ liệu bộ nhớ qua DMA và tạo xung PWM phần cứng chính xác.
 
+## Tổng Quan Dự Án
+
+### 1. Sao chép Bộ nhớ DMA song song với CPU (dma_test.c)
+Chương trình này thể hiện sức mạnh của Truy cập Bộ nhớ Trực tiếp (DMA). Nó chuyển tải tác vụ sao chép bộ nhớ sang bộ điều khiển DMA, giải phóng CPU để thực hiện các tác vụ khác (nhấp nháy đèn LED) cùng lúc.
+
+* **Tính năng chính:**
+    * **Giao diện Mailbox:** Sử dụng giao diện Mailbox của RPi VC4 để cấp phát bộ nhớ vật lý liên tục và đồng nhất (contiguous, coherent physical memory) - điều bắt buộc đối với DMA trên RPi 4.
+    * **Logic Zero-Copy:** Ánh xạ địa chỉ bus vật lý vào bộ nhớ ảo của không gian người dùng bằng lệnh `mmap`.
+    * **Xử lý song song:** CPU thực hiện nhấp nháy đèn LED thông qua `sysfs` trong khi bộ điều khiển DMA thực hiện sao chép dữ liệu ở nền.
+    * **Xác minh dữ liệu:** Ghi bộ đệm nguồn và đích ra các file (`dma_src.txt`, `dma_dst.txt`) để kiểm tra tính toàn vẹn.
+
+### 2. Demo Lai tạo PWM & Timer (timer-pwm-demo.c)
+Chương trình này minh họa một kiến trúc lai (hybrid) kết hợp giữa logic Ngắt (Interrupt-driven) và logic Hỏi vòng (Polling) để điều khiển thời gian thực.
+
+* **Tính năng chính:**
+    * **Truy cập Thanh ghi Trực tiếp:** Sử dụng `mmap` để truy cập trực tiếp các thanh ghi GPIO, PWM, Clock và System Timer thông qua `/dev/mem`.
+    * **Tác vụ 1 (Ngắt):** Sử dụng POSIX Timers (`timer_create`) để kích hoạt một tín hiệu (signal) mỗi 20ms. Trình xử lý tín hiệu sẽ cập nhật độ rộng xung (duty cycle) của phần cứng PWM để tạo hiệu ứng đèn LED "thở" (fading).
+    * **Tác vụ 2 (Hỏi vòng):** Vòng lặp chính liên tục kiểm tra (poll) System Timer phần cứng (`SYS_TIMER_CLO`) và in giá trị thời gian ra màn hình mỗi 500ms mà không làm gián đoạn tác vụ PWM.
+
+## Thiết Lập Phần Cứng
+
+Để kiểm tra các chương trình này, bạn cần một mạch đèn LED đơn giản.
+
+* **GPIO 18 (Chân vật lý 12):** Kết nối với cực Dương (+) của đèn LED.
+* **GND (Chân vật lý 6 hoặc 14):** Kết nối với cực Âm (-) của đèn LED thông qua một điện trở 220 Ohm - 330 Ohm.
+
+Lưu ý: GPIO 18 được chọn vì nó hỗ trợ chức năng phần cứng PWM0 (chế độ ALT5).
+
+## Biên Dịch & Hướng Dẫn Sử Dụng
+
+Các chương trình này yêu cầu quyền Root (`sudo`) vì chúng cần truy cập vào `/dev/mem` và `/dev/vcio` để điều khiển phần cứng vật lý.
+
+### 1. Biên dịch Demo DMA
+
+Mã nguồn DMA yêu cầu cờ `RPI4_BUILD` để thiết lập đúng Địa chỉ Cơ sở Ngoại vi (0xFE000000 cho Pi 4).
+
+Biên dịch:
+```bash
+gcc -o dma_test dma_test.c -DRPI4_BUILD
